@@ -1,6 +1,8 @@
 package core
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -804,6 +806,79 @@ func TestCoalescer_Stop(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Stop() blocked")
+	}
+}
+
+// --- decompressRelayResponse ---
+
+func makeGzipEnvelope(t *testing.T, payload string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	w.Write([]byte(payload))
+	w.Close()
+	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
+	env, _ := json.Marshal(map[string]string{"z": b64})
+	return env
+}
+
+func TestDecompressRelayResponse_Passthrough(t *testing.T) {
+	plain := []byte(`{"s":200,"b":"aGVsbG8="}`)
+	if got := decompressRelayResponse(plain); string(got) != string(plain) {
+		t.Errorf("passthrough modified body: got %q", got)
+	}
+}
+
+func TestDecompressRelayResponse_InvalidJSON(t *testing.T) {
+	bad := []byte(`not json at all`)
+	if got := decompressRelayResponse(bad); string(got) != string(bad) {
+		t.Errorf("bad JSON should pass through unchanged, got %q", got)
+	}
+}
+
+func TestDecompressRelayResponse_NoZField(t *testing.T) {
+	noZ := []byte(`{"other":"value"}`)
+	if got := decompressRelayResponse(noZ); string(got) != string(noZ) {
+		t.Errorf("no-z envelope should pass through unchanged, got %q", got)
+	}
+}
+
+func TestDecompressRelayResponse_ValidEnvelope(t *testing.T) {
+	payload := `{"s":200,"h":{},"b":"aGVsbG8="}`
+	env := makeGzipEnvelope(t, payload)
+	got := decompressRelayResponse(env)
+	if string(got) != payload {
+		t.Errorf("decompressed = %q, want %q", got, payload)
+	}
+}
+
+func TestDecompressRelayResponse_InvalidBase64(t *testing.T) {
+	bad, _ := json.Marshal(map[string]string{"z": "!!!not-base64!!!"})
+	if got := decompressRelayResponse(bad); string(got) != string(bad) {
+		t.Errorf("invalid base64 should pass through, got %q", got)
+	}
+}
+
+func TestDecompressRelayResponse_CorruptGzip(t *testing.T) {
+	corrupt, _ := json.Marshal(map[string]string{"z": base64.StdEncoding.EncodeToString([]byte("not gzip"))})
+	if got := decompressRelayResponse(corrupt); string(got) != string(corrupt) {
+		t.Errorf("corrupt gzip should pass through, got %q", got)
+	}
+}
+
+func TestTryOneURL_CompressedEnvelope(t *testing.T) {
+	payload := `{"s":200,"h":{},"b":"` + base64.StdEncoding.EncodeToString([]byte("compressed body")) + `"}`
+	env := makeGzipEnvelope(t, payload)
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(env)
+	}))
+	defer srv.Close()
+
+	_, err := tryOneURL(context.Background(), srv.Client(), srv.URL, srvHost(srv), "{}", 5*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error for compressed response: %v", err)
 	}
 }
 
