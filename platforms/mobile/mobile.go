@@ -37,12 +37,6 @@ type LogEntry struct {
 	Message string
 }
 
-// LogCallback is implemented by the Android service to receive live log lines.
-// gomobile requires an interface rather than a bare func.
-type LogCallback interface {
-	OnLog(level, msg string)
-}
-
 var (
 	mu        sync.Mutex
 	server    *http.Server
@@ -54,16 +48,7 @@ var (
 	logBuf     []LogEntry
 	logSeq     int // increments with every new entry
 	logReadSeq int // last seq returned to caller
-	logCb      LogCallback
 )
-
-// SetLogCallback registers a callback called on every new log entry.
-// Pass nil to unregister.
-func SetLogCallback(cb LogCallback) {
-	logMu.Lock()
-	defer logMu.Unlock()
-	logCb = cb
-}
 
 func emitLog(level, msg string) {
 	logMu.Lock()
@@ -73,11 +58,7 @@ func emitLog(level, msg string) {
 		logBuf = logBuf[1:]
 	}
 	logSeq++
-	cb := logCb
 	logMu.Unlock()
-	if cb != nil {
-		cb.OnLog(level, msg)
-	}
 }
 
 // PollLogs returns all log entries added since the last call.

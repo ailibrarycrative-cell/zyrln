@@ -426,7 +426,7 @@ func TestRelayRequestMulti_SingleURL(t *testing.T) {
 	}
 }
 
-func TestRelayRequestMulti_AllURLsRacedInParallel(t *testing.T) {
+func TestRelayRequestMulti_UsesStickyURL(t *testing.T) {
 	var mu sync.Mutex
 	hits := map[string]int{}
 
@@ -452,10 +452,12 @@ func TestRelayRequestMulti_AllURLsRacedInParallel(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	// With parallel racing, both URLs should be hit (each request races both).
-	total := hits["/s/ID1/exec"] + hits["/s/ID2/exec"]
-	if total < 4 {
-		t.Errorf("expected at least 4 total hits across both URLs, got %d: %v", total, hits)
+	// Sticky failover: only the active URL should be used while it succeeds.
+	if hits["/s/ID1/exec"] != 4 {
+		t.Errorf("expected ID1 hit 4 times, got %d: %v", hits["/s/ID1/exec"], hits)
+	}
+	if hits["/s/ID2/exec"] != 0 {
+		t.Errorf("expected ID2 not hit while ID1 works, got %d", hits["/s/ID2/exec"])
 	}
 }
 
@@ -491,13 +493,16 @@ func TestRelayRequestMulti_SucceedsWithMixedURLs(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	// With parallel racing, ID2 must be hit at least 3 times (once per request, always succeeds).
-	if hits["/s/ID2/exec"] < 3 {
-		t.Errorf("expected ID2 hit at least 3 times, got %d", hits["/s/ID2/exec"])
+	// First request fails over from ID1 to ID2; later requests stick to ID2.
+	if hits["/s/ID1/exec"] != 1 {
+		t.Errorf("expected ID1 hit once, got %d", hits["/s/ID1/exec"])
+	}
+	if hits["/s/ID2/exec"] != 3 {
+		t.Errorf("expected ID2 hit 3 times, got %d", hits["/s/ID2/exec"])
 	}
 }
 
-func TestRelayRequestMulti_ParallelRaceHandlesQuota(t *testing.T) {
+func TestRelayRequestMulti_FailoverOnQuota(t *testing.T) {
 	var mu sync.Mutex
 	hits := map[string]int{}
 	quota := map[string]int{

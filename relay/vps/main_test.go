@@ -170,6 +170,35 @@ func TestHandleRelay_RedirectMode(t *testing.T) {
 	})
 }
 
+func TestHandleRelay_RejectsInvalidJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/relay", strings.NewReader(`not-json`))
+
+	handleRelay(w, r, http.DefaultClient, "", time.Second)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	assertRelayErrorContains(t, w.Body.Bytes(), "bad json")
+}
+
+func TestHandleRelay_RejectsMissingMethodDefault(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+
+	resp := postRelayRequest(t, target.Client(), relayRequest{
+		URL: target.URL,
+	})
+	if resp.Status != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.Status)
+	}
+}
+
 func TestHandleRelay_RejectsBadBase64Body(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/relay", strings.NewReader(`{"u":"https://example.com","b":"%%%"}`))

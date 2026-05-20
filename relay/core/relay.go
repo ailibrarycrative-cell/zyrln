@@ -77,22 +77,6 @@ func ParseURLList(raw string) []string {
 
 var activeURLIdx atomic.Int64
 
-// perURLTimeout splits the total timeout budget evenly across n URLs so that
-// a single slow or unreachable URL does not burn the whole deadline before
-// failover kicks in. A minimum of 8s is enforced so each attempt has enough
-// time to complete a normal relay call.
-func perURLTimeout(total time.Duration, n int) time.Duration {
-	if n <= 1 {
-		return total
-	}
-	per := total / time.Duration(n)
-	const min = 8 * time.Second
-	if per < min {
-		return min
-	}
-	return per
-}
-
 type workerResponse struct {
 	Status  int            `json:"s"`
 	Headers map[string]any `json:"h"`
@@ -165,37 +149,19 @@ func RelayRequestMulti(
 	}
 	payload := buildRelayPayload(authKey, method, targetURL, headers, body)
 	start := int(activeURLIdx.Load()) % n
-	// Each parallel goroutine gets the full timeout since they race simultaneously
-
-	// Race all URLs in parallel — first success wins
-	type raceResult struct {
-		resp RelayResponse
-		idx  int
-		err  error
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	ch := make(chan raceResult, n)
-	for i := 0; i < n; i++ {
-		idx := (start + i) % n
-		go func(idx int) {
-			resp, err := tryOneURL(ctx, client, appScriptURLs[idx], frontDomain, payload, timeout)
-			ch <- raceResult{resp, idx, err}
-		}(idx)
-	}
+	ctx := context.Background()
 
 	var lastErr error
 	for i := 0; i < n; i++ {
-		r := <-ch
-		if r.err == nil {
-			cancel() // cancel losing goroutines
-			if r.idx != start {
-				activeURLIdx.Store(int64(r.idx))
+		idx := (start + i) % n
+		resp, err := tryOneURL(ctx, client, appScriptURLs[idx], frontDomain, payload, timeout)
+		if err == nil {
+			if idx != start {
+				activeURLIdx.Store(int64(idx))
 			}
-			return r.resp, nil
+			return resp, nil
 		}
-		lastErr = r.err
+		lastErr = err
 	}
 	return RelayResponse{}, lastErr
 }
@@ -501,44 +467,21 @@ func (c *Coalescer) flush(batch []*coalescerItem) {
 
 	n := len(c.appScriptURLs)
 	start := int(activeURLIdx.Load()) % n
-	// Each parallel goroutine gets the full timeout since they race simultaneously
-
-	// Try all URLs in parallel — use the first successful response
-	type raceResult struct {
-		raw []byte
-		idx int
-		err error
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	results := make(chan raceResult, n)
-	for i := 0; i < n; i++ {
-		idx := (start + i) % n
-		go func(idx int) {
-			raw, err := appsScriptRoundTrip(ctx, c.client, c.appScriptURLs[idx], c.frontDomain, string(payload), c.timeout)
-			results <- raceResult{raw, idx, err}
-		}(idx)
-	}
+	ctx := context.Background()
 
 	var raw []byte
 	var lastErr error
 	for i := 0; i < n; i++ {
-		r := <-results
-		if r.err == nil {
-			if raw == nil {
-				raw = r.raw
-				cancel() // cancel losing goroutines
-				if r.idx != start {
-					activeURLIdx.Store(int64(r.idx))
-				}
+		idx := (start + i) % n
+		r, err := appsScriptRoundTrip(ctx, c.client, c.appScriptURLs[idx], c.frontDomain, string(payload), c.timeout)
+		if err == nil {
+			raw = r
+			if idx != start {
+				activeURLIdx.Store(int64(idx))
 			}
-		} else {
-			// Only capture the error if we haven't succeeded yet and it's not a cancellation
-			if raw == nil && !errors.Is(r.err, context.Canceled) {
-				lastErr = r.err
-			}
+			break
 		}
+		lastErr = err
 	}
 	if raw == nil && lastErr != nil {
 		c.failAll(batch, lastErr)

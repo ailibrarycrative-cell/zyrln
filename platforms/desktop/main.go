@@ -29,7 +29,7 @@ import (
 )
 
 const defaultProxyAddress = "direct"
-const appVersion = "1.5.1-pre9"
+const appVersion = "1.6"
 
 //go:embed gui/*
 var embeddedGUI embed.FS
@@ -777,7 +777,7 @@ func truncate(value string, max int) string {
 func loadConfig(path string) map[string]string {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return map[string]string{}
 	}
 	values := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
@@ -860,6 +860,9 @@ func profileConfig(values map[string]string) map[string]string {
 }
 
 func applyProfileConfig(base, profile map[string]string) map[string]string {
+	if base == nil {
+		base = map[string]string{}
+	}
 	merged := map[string]string{}
 	for k, v := range base {
 		merged[k] = v

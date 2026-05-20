@@ -3,10 +3,11 @@ ANDROID_HOME ?= $(HOME)/Android/Sdk
 GOTOOLCHAIN  ?= go1.25.0
 GOFLAGS      ?= -buildvcs=false
 AAR_OUT       = android/app/libs/mobile.aar
-APK_VERSION   = 1.5.1-pre9
+APK_VERSION   = 1.6
 APK_RELEASE   = android/app/build/outputs/apk/release/zyrln-$(APK_VERSION).apk
 DESKTOP_VERSION ?= $(APK_VERSION)
 DIST_DIR      = dist
+APK_DIST      = $(DIST_DIR)/zyrln-$(APK_VERSION)-android.apk
 DESKTOP_LINUX = $(DIST_DIR)/zyrln-$(DESKTOP_VERSION)-linux-amd64
 DESKTOP_WIN   = $(DIST_DIR)/zyrln-$(DESKTOP_VERSION)-windows-amd64.exe
 DESKTOP_MAC_ARM64 = $(DIST_DIR)/zyrln-$(DESKTOP_VERSION)-darwin-arm64
@@ -117,8 +118,10 @@ android:
 		-o $(AAR_OUT) \
 		zyrln/platforms/mobile
 	cd android && ./gradlew assembleRelease
-	@echo "APK → $(APK_RELEASE)"
+	@mkdir -p $(DIST_DIR)
+	cp $(APK_RELEASE) $(APK_DIST)
+	@echo "APK → $(APK_DIST)"
 
 clean:
-	rm -f zyrln $(AAR_OUT) $(DESKTOP_LINUX) $(DESKTOP_WIN) $(DESKTOP_MAC_ARM64) $(DESKTOP_MAC_AMD64)
+	rm -f zyrln $(AAR_OUT) $(DESKTOP_LINUX) $(DESKTOP_WIN) $(DESKTOP_MAC_ARM64) $(DESKTOP_MAC_AMD64) $(APK_DIST)
 	cd android && ./gradlew clean 2>/dev/null || true

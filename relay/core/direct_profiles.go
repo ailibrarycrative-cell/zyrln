@@ -26,7 +26,7 @@ var directProfiles = [...]DirectProfile{
 		if len(pts) == 0 {
 			return equalSplits(len(b), 8)
 		}
-		return append([]int{1, 5}, pts...)
+		return normalizeSplitPoints(len(b), append([]int{1, 5}, pts...))
 	}}},
 	{ID: "p02", Config: FragmentConfig{NumChunks: 16, Delay: 1 * time.Millisecond, Splits: func(b []byte) []int { return equalSplits(len(b), 16) }}},
 	{ID: "p03", Config: FragmentConfig{NumChunks: 32, Delay: 3 * time.Millisecond, Splits: func(b []byte) []int { return equalSplits(len(b), 32) }}},

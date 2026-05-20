@@ -455,6 +455,22 @@ func TestFragmentConn_CustomSplits(t *testing.T) {
 	}
 }
 
+func TestFragmentConn_UnsortedSplits(t *testing.T) {
+	data := bytes.Repeat([]byte("X"), 100)
+	cfg := FragmentConfig{
+		NumChunks: 10,
+		Delay:     0,
+		Splits:    func(b []byte) []int { return []int{50, 10, 5, 1} },
+	}
+	fc, rc := newTestFragmentConn(cfg)
+	if _, err := fc.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if !bytes.Equal(rc.allBytes(), data) {
+		t.Error("data integrity failed with unsorted splits")
+	}
+}
+
 func TestFragmentConn_SplitsFallbackToRandom(t *testing.T) {
 	data := bytes.Repeat([]byte("X"), 100)
 	// Splits func returns nil — should fall back to random splits.
@@ -478,9 +494,10 @@ func TestIsDirectDomain(t *testing.T) {
 		host string
 		want bool
 	}{
-		{"youtube.com", true},
-		{"www.youtube.com", true},
-		{"i.ytimg.com", true},
+		{"youtube.com", false},
+		{"www.youtube.com", false},
+		{"m.youtube.com", false},
+		{"i.ytimg.com", false},
 		{"googleapis.com", true},
 		{"maps.googleapis.com", true},
 		{"mail.google.com", true},
@@ -491,7 +508,7 @@ func TestIsDirectDomain(t *testing.T) {
 		{"example.com", false},
 		{"notgoogle.com", false},
 		// with port
-		{"youtube.com:443", true},
+		{"youtube.com:443", false},
 		{"instagram.com:443", false},
 	}
 	for _, tc := range cases {

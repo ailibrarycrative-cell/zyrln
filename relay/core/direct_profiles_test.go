@@ -10,6 +10,8 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -482,5 +484,37 @@ func TestIsBetter_ZeroAvgB(t *testing.T) {
 	b := DirectProbeResult{Target: "t", Stable: 1, Avg: 0}
 	if !isBetter(a, b) {
 		t.Error("non-zero avg a should beat zero avg b")
+	}
+}
+
+func TestSetCacheDir_LoadsRemembered(t *testing.T) {
+	orig := cacheDir.Load()
+	remembered.Store(nil)
+	t.Cleanup(func() {
+		if orig == nil {
+			cacheDir.Store(nil)
+		} else {
+			cacheDir.Store(orig)
+		}
+		remembered.Store(nil)
+	})
+
+	dir := t.TempDir()
+	profileID := directProfiles[0].ID
+	front := DirectFronts[0]
+	if err := os.WriteFile(filepath.Join(dir, "direct_candidate.txt"), []byte(front+"\n"+profileID), 0o600); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+
+	SetCacheDir(dir)
+	cand := remembered.Load()
+	if cand == nil {
+		t.Fatal("expected remembered candidate after SetCacheDir")
+	}
+	if cand.front != front {
+		t.Errorf("front = %q, want %q", cand.front, front)
+	}
+	if directProfiles[cand.profileIdx].ID != profileID {
+		t.Errorf("profile = %q, want %q", directProfiles[cand.profileIdx].ID, profileID)
 	}
 }

@@ -73,6 +73,11 @@ func (c *fragmentConn) Write(b []byte) (int, error) {
 	}
 	if len(splits) == 0 {
 		splits = randomSplits(n, numChunks-1)
+	} else {
+		splits = normalizeSplitPoints(n, splits)
+		if len(splits) == 0 {
+			splits = randomSplits(n, numChunks-1)
+		}
 	}
 
 	written := 0
@@ -215,6 +220,24 @@ func sniHostRangeInExtension(data []byte, start, end int) (int, int) {
 		i += nameLen
 	}
 	return 0, 0
+}
+
+// normalizeSplitPoints filters, deduplicates, and sorts split points into (0, n).
+func normalizeSplitPoints(n int, splits []int) []int {
+	if n < 2 {
+		return nil
+	}
+	seen := make(map[int]bool, len(splits))
+	out := make([]int, 0, len(splits))
+	for _, s := range splits {
+		if s <= 0 || s >= n || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sortInts(out)
+	return out
 }
 
 // randomSplits returns count sorted random positions in (0, n), all distinct.

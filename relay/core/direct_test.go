@@ -141,15 +141,16 @@ func TestIsGoogleDomain(t *testing.T) {
 		{"www.google.com", true},
 		{"MAIL.GOOGLE.COM", true},
 		{"accounts.google.com", true},
-		{"youtube.com", true},
-		{"www.youtube.com", true},
+		// YouTube is Google-owned but not under .google.com — uses relay, not direct frag
+		{"youtube.com", false},
+		{"www.youtube.com", false},
 		{"googleapis.com", true},
 		{"storage.googleapis.com", true},
 		{"gstatic.com", true},
 		{"www.gstatic.com", true},
 		// with port
 		{"www.google.com:443", true},
-		{"youtube.com:80", true},
+		{"youtube.com:80", false},
 		// sanctioned — must go through relay
 		{"gemini.google.com", false},
 		{"gemini.google.com:443", false},

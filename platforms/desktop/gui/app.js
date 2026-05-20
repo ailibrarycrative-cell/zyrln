@@ -340,8 +340,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/api/config');
             const config = await response.json();
-            window.__ZYRLN_STATE__.lastSavedConfig = config;
-            for (const [key, value] of Object.entries(config)) {
+            const cfg = (config && typeof config === 'object') ? config : {};
+            window.__ZYRLN_STATE__.lastSavedConfig = cfg;
+            for (const [key, value] of Object.entries(cfg)) {
                 if (key === 'fronted-appscript-url') {
                     setUrlRows(value);
                 } else {

@@ -455,30 +455,6 @@ func TestCoalescer_AdaptiveWindow(t *testing.T) {
 	t.Logf("burst of %d requests → %d Apps Script call(s)", n, calls)
 }
 
-// --- perURLTimeout ---
-
-func TestPerURLTimeout_SingleURL(t *testing.T) {
-	got := perURLTimeout(45*time.Second, 1)
-	if got != 45*time.Second {
-		t.Errorf("single URL: got %v, want 45s", got)
-	}
-}
-
-func TestPerURLTimeout_SplitsEvenly(t *testing.T) {
-	got := perURLTimeout(45*time.Second, 3)
-	if got != 15*time.Second {
-		t.Errorf("3 URLs: got %v, want 15s", got)
-	}
-}
-
-func TestPerURLTimeout_RespectsMinimum(t *testing.T) {
-	// 10 URLs would give 4.5s each — must be clamped to 8s minimum.
-	got := perURLTimeout(45*time.Second, 10)
-	if got < 8*time.Second {
-		t.Errorf("minimum not enforced: got %v, want >= 8s", got)
-	}
-}
-
 // --- serveSSEKeepalive ---
 
 func TestServeSSEKeepalive_SendsHeadersAndKeepalive(t *testing.T) {
@@ -564,20 +540,6 @@ func TestRelayRequestMulti_FailoverTransparent(t *testing.T) {
 	}
 	if string(resp.Body) != "fallback-ok" {
 		t.Errorf("body = %q, want fallback-ok", resp.Body)
-	}
-}
-
-func TestRelayRequestMulti_SplitsTimeout(t *testing.T) {
-	// 2 URLs, 20s total → 10s each (above 8s minimum).
-	got := perURLTimeout(20*time.Second, 2)
-	if got != 10*time.Second {
-		t.Errorf("got %v, want 10s", got)
-	}
-
-	// 2 URLs, 4s total → below minimum, clamped to 8s.
-	got = perURLTimeout(4*time.Second, 2)
-	if got != 8*time.Second {
-		t.Errorf("got %v, want 8s (minimum)", got)
 	}
 }
 

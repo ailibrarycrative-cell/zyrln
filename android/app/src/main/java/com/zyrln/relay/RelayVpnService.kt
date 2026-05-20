@@ -17,6 +17,7 @@ import java.io.File
 class RelayVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    @Volatile private var startGeneration = 0
 
     companion object {
         const val TAG = "RelayVpnService"
@@ -42,6 +43,7 @@ class RelayVpnService : VpnService() {
         val key = intent.getStringExtra(EXTRA_KEY) ?: return START_NOT_STICKY
 
         // Stop any existing session before starting a new one (handles rapid mode switching).
+        startGeneration++
         if (Mobile.isRunning()) {
             Mobile.setSocketProtector(null)
             Mobile.stop()
@@ -50,15 +52,19 @@ class RelayVpnService : VpnService() {
         }
 
         startForeground(NOTIF_ID, buildNotification())
+        val gen = startGeneration
         val vpnService = this
         Mobile.setSocketProtector(object : mobile.SocketProtector {
             override fun protect(p0: Long): Boolean = vpnService.protect(p0.toInt())
         })
-        startRelay(url, key)
+        Thread {
+            startRelay(url, key, gen)
+        }.start()
         return START_STICKY
     }
 
-    private fun startRelay(url: String, key: String) {
+    private fun startRelay(url: String, key: String, generation: Int) {
+        if (generation != startGeneration) return
         val err = if (url.isEmpty()) {
             Mobile.startDirect("127.0.0.1:$PROXY_PORT")
         } else {
@@ -66,17 +72,23 @@ class RelayVpnService : VpnService() {
             val certPath = File(certDir, "ca.pem").absolutePath
             val keyPath = File(certDir, "ca.key").absolutePath
             if (!File(certPath).exists() || !File(keyPath).exists()) {
-                failStart(getString(R.string.error_ca_required))
+                failStart(getString(R.string.error_ca_required), generation)
                 return
             }
             Mobile.start(url, key, "127.0.0.1:$PROXY_PORT", certPath, keyPath)
         }
+        if (generation != startGeneration) return
         if (err.isNotEmpty()) {
             Log.e(TAG, "relay start failed: $err")
-            failStart(getString(R.string.error_relay_start_failed, err))
+            failStart(getString(R.string.error_relay_start_failed, err), generation)
             return
         }
         Log.i(TAG, "relay proxy started on 127.0.0.1:$PROXY_PORT")
+        if (generation != startGeneration) {
+            Mobile.setSocketProtector(null)
+            Mobile.stop()
+            return
+        }
 
         val builder = Builder()
             .setSession("Zyrln")
@@ -87,7 +99,14 @@ class RelayVpnService : VpnService() {
             vpnInterface = builder.establish()
             if (vpnInterface == null) {
                 // establish() returns null when VPN permission is revoked mid-flow.
-                failStart(getString(R.string.error_vpn_permission))
+                failStart(getString(R.string.error_vpn_permission), generation)
+                return
+            }
+            if (generation != startGeneration) {
+                Mobile.setSocketProtector(null)
+                Mobile.stop()
+                vpnInterface?.close()
+                vpnInterface = null
                 return
             }
             Log.i(TAG, "VPN interface established")
@@ -103,7 +122,8 @@ class RelayVpnService : VpnService() {
         }
     }
 
-    private fun failStart(message: String) {
+    private fun failStart(message: String, generation: Int) {
+        if (generation != startGeneration) return
         Log.e(TAG, message)
         Mobile.setSocketProtector(null)
         Mobile.stop()
@@ -115,6 +135,7 @@ class RelayVpnService : VpnService() {
     }
 
     private fun stopRelay() {
+        startGeneration++
         Log.i(TAG, "stopping relay")
         Mobile.setSocketProtector(null)
         Mobile.stop()

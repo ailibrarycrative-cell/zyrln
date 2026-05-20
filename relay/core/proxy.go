@@ -81,16 +81,6 @@ func fmtBytes(n int) string {
 	}
 }
 
-// ServeProxy starts the relay HTTP+HTTPS MITM proxy and blocks until it exits.
-// appScriptURLs is tried in order; the first that succeeds is used for each request.
-func ServeProxy(listenAddr string, appScriptURLs []string, frontDomain, authKey string, ca *CertAuthority, client *http.Client, timeout time.Duration) error {
-	srv, err := listenAndServeProxy(listenAddr, appScriptURLs, frontDomain, authKey, ca, client, timeout)
-	if err != nil {
-		return err
-	}
-	return srv.ListenAndServe()
-}
-
 // ServeProxyWithSOCKS starts the relay HTTP+HTTPS MITM proxy and a SOCKS5 listener.
 // SOCKS5 support is limited to HTTP and HTTPS traffic so it can reuse the relay pipeline.
 func ServeProxyWithSOCKS(httpListenAddr, socksListenAddr string, appScriptURLs []string, frontDomain, authKey string, ca *CertAuthority, client *http.Client, timeout time.Duration) error {
@@ -177,18 +167,6 @@ func StartProxyWithSOCKSAndCoalescer(httpListenAddr, socksListenAddr string, app
 	go func() { _ = httpSrv.Serve(httpLn) }()
 	go func() { _ = socksSrv.Serve(socksLn) }()
 	return httpSrv, httpLn, socksSrv, socksLn, coal, nil
-}
-
-func listenAndServeProxy(listenAddr string, appScriptURLs []string, frontDomain, authKey string, ca *CertAuthority, client *http.Client, timeout time.Duration) (*http.Server, error) {
-	coal, err := newProxyCoalescer(appScriptURLs, frontDomain, authKey, client, timeout)
-	if err != nil {
-		return nil, err
-	}
-	srv := buildHTTPProxyServer(listenAddr, coal, ca)
-	if coal != nil {
-		srv.RegisterOnShutdown(coal.Stop)
-	}
-	return srv, nil
 }
 
 func newProxyCoalescer(appScriptURLs []string, frontDomain, authKey string, client *http.Client, timeout time.Duration) (*Coalescer, error) {
@@ -323,7 +301,7 @@ func handleConnect(w http.ResponseWriter, r *http.Request, coal *Coalescer, ca *
 		_, _ = rawConn.Write([]byte("HTTP/1.1 502 No proxy configured\r\n\r\n"))
 		return
 	case modeDirect:
-		if IsGoogleDomain(certHost) {
+		if IsDirectDomain(certHost) {
 			handleDirectConnect(rawConn, r.Host)
 		} else {
 			serverConn, err := protectedDialer(15 * time.Second).DialContext(r.Context(), "tcp", r.Host)
@@ -337,7 +315,7 @@ func handleConnect(w http.ResponseWriter, r *http.Request, coal *Coalescer, ca *
 		}
 		return
 	case modeDirectRelay:
-		if IsGoogleDomain(certHost) {
+		if IsDirectDomain(certHost) {
 			handleDirectConnect(rawConn, r.Host)
 			return
 		}
@@ -493,7 +471,7 @@ func (s *SOCKSServer) handleConn(conn net.Conn) {
 			return
 		case modeDirect:
 			var serverConn net.Conn
-			if IsGoogleDomain(certHost) {
+			if IsDirectDomain(certHost) {
 				var ok bool
 				serverConn, ok = DialFragment(targetHost)
 				if !ok {
@@ -510,7 +488,7 @@ func (s *SOCKSServer) handleConn(conn net.Conn) {
 			pipe(&bufferedConn{Conn: conn, reader: reader}, serverConn)
 			return
 		case modeDirectRelay:
-			if IsGoogleDomain(certHost) {
+			if IsDirectDomain(certHost) {
 				serverConn, ok := DialFragment(targetHost)
 				if !ok {
 					return
