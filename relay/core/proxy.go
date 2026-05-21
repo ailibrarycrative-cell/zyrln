@@ -175,6 +175,7 @@ func newProxyCoalescer(appScriptURLs []string, frontDomain, authKey string, clie
 	}
 	coal := NewCoalescer(client, appScriptURLs, frontDomain, authKey, timeout)
 	coal.Warmup()
+	ensureDomesticRefresh()
 	return coal, nil
 }
 
@@ -217,7 +218,10 @@ func handleHTTP(w http.ResponseWriter, r *http.Request, coal *Coalescer, ca *Cer
 		directHTTP(w, r, targetURL, body)
 		return
 	case modeRelay, modeDirectRelay:
-		// relay below
+		if ShouldUseDomesticBypass(hostFromHTTPRequest(r)) {
+			directHTTP(w, r, targetURL, body)
+			return
+		}
 	}
 
 	relayResp, err := coal.Submit(r.Method, targetURL, forwardHeaders(r.Header), body)
@@ -237,6 +241,21 @@ func handleHTTP(w http.ResponseWriter, r *http.Request, coal *Coalescer, ca *Cer
 	w.WriteHeader(relayResp.Status)
 	_, _ = w.Write(relayResp.Body)
 	logf("info", "%s %s → %d %s", r.Method, targetURL, relayResp.Status, fmtBytes(len(relayResp.Body)))
+}
+
+func hostFromHTTPRequest(r *http.Request) string {
+	if r.URL != nil && r.URL.Host != "" {
+		return r.URL.Host
+	}
+	return r.Host
+}
+
+func hostFromAddr(host string) string {
+	h, _, err := net.SplitHostPort(host)
+	if err != nil {
+		return host
+	}
+	return h
 }
 
 // directHTTP forwards a plain HTTP request directly to the target (no relay).
@@ -271,6 +290,30 @@ func directHTTP(w http.ResponseWriter, r *http.Request, targetURL string, body [
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func directHTTPToConn(conn net.Conn, r *http.Request, targetURL string, body []byte) error {
+	req, err := http.NewRequest(r.Method, targetURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	for k, vs := range r.Header {
+		if !skipRequestHeader(k) {
+			for _, v := range vs {
+				req.Header.Add(k, v)
+			}
+		}
+	}
+	transport := &http.Transport{
+		DialContext:     protectedDialer(15 * time.Second).DialContext,
+		IdleConnTimeout: 30 * time.Second,
+	}
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return resp.Write(conn)
 }
 
 func handleConnect(w http.ResponseWriter, r *http.Request, coal *Coalescer, ca *CertAuthority) {
@@ -319,9 +362,15 @@ func handleConnect(w http.ResponseWriter, r *http.Request, coal *Coalescer, ca *
 			handleDirectConnect(rawConn, r.Host)
 			return
 		}
-		// non-Google: fall through to MITM+relay
+		if ShouldUseDomesticBypass(certHost) {
+			handlePlainConnect(rawConn, r.Host)
+			return
+		}
 	case modeRelay:
-		// fall through to MITM+relay
+		if ShouldUseDomesticBypass(certHost) {
+			handlePlainConnect(rawConn, r.Host)
+			return
+		}
 	}
 
 	if ca == nil {
@@ -497,9 +546,25 @@ func (s *SOCKSServer) handleConn(conn net.Conn) {
 				pipe(&bufferedConn{Conn: conn, reader: reader}, serverConn)
 				return
 			}
-			// non-Google: fall through to MITM+relay
+			if ShouldUseDomesticBypass(certHost) {
+				serverConn, ok := dialPlainDirect(targetHost)
+				if !ok {
+					return
+				}
+				defer serverConn.Close()
+				pipe(&bufferedConn{Conn: conn, reader: reader}, serverConn)
+				return
+			}
 		case modeRelay:
-			// fall through to MITM+relay
+			if ShouldUseDomesticBypass(certHost) {
+				serverConn, ok := dialPlainDirect(targetHost)
+				if !ok {
+					return
+				}
+				defer serverConn.Close()
+				pipe(&bufferedConn{Conn: conn, reader: reader}, serverConn)
+				return
+			}
 		}
 
 		cert, err := s.ca.CertForHost(certHost)
@@ -652,7 +717,6 @@ func handleSOCKSHTTP(conn net.Conn, targetHost string, mode proxyMode, coal *Coa
 		pipe(conn, serverConn)
 		return
 	case modeRelay, modeDirectRelay:
-		// relay below
 	}
 
 	reader := bufio.NewReader(conn)
@@ -684,6 +748,16 @@ func handleSOCKSHTTP(conn net.Conn, targetHost string, mode proxyMode, coal *Coa
 		}
 
 		targetURL := "http://" + host + req.URL.RequestURI()
+		if domesticBypassForMode(mode) && ShouldUseDomesticBypass(hostFromAddr(host)) {
+			if err := directHTTPToConn(conn, req, targetURL, body); err != nil {
+				writeHTTPError(conn, http.StatusBadGateway, "direct failed: "+err.Error())
+				return
+			}
+			if strings.EqualFold(req.Header.Get("Connection"), "close") {
+				return
+			}
+			continue
+		}
 		relayResp, err := coal.Submit(req.Method, targetURL, forwardHeaders(req.Header), body)
 		if err != nil {
 			writeHTTPError(conn, http.StatusBadGateway, "relay failed: "+err.Error())

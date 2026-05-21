@@ -288,6 +288,21 @@ func SetCacheDir(dir string) {
 }
 
 
+// SetDomesticBypassEnabled enables routing Iranian domains outside the relay.
+func SetDomesticBypassEnabled(enabled bool) {
+	core.SetDomesticBypassEnabled(enabled)
+}
+
+// IsDomesticBypassEnabled returns whether domestic bypass is on.
+func IsDomesticBypassEnabled() bool {
+	return core.GetDomesticBypassEnabled()
+}
+
+// RefreshDomesticRules reloads the bundled domain list embedded in the app.
+func RefreshDomesticRules() {
+	core.RefreshDomesticRules()
+}
+
 // SetDirectEnabled controls whether Google domains bypass the relay via TLS
 // fragmentation. Enabled by default. Safe to call at any time.
 func SetDirectEnabled(enabled bool) {
