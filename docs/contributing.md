@@ -11,7 +11,7 @@ zyrln/
 │   │   ├── main.go     # CLI flags, probe runner, relay-fetch, proxy launcher
 │   │   └── main_test.go
 │   └── mobile/         # gomobile bindings for Android
-│       └── mobile.go   # Exported API: Start, Stop, IsRunning, LastError, GenerateCA
+│       └── mobile.go   # Exported API: StartTunnel, StartDirect, Stop, Ping, …
 │
 ├── relay/
 │   ├── core/           # Shared relay logic (imported by desktop and mobile)
@@ -21,6 +21,8 @@ zyrln/
 │   │   ├── direct.go   # Direct mode: Google domain detection, fragmented dial
 │   │   ├── fragment.go # TLS ClientHello fragmentation to defeat SNI inspection
 │   │   └── *_test.go
+│   ├── tunnel/
+│   │   └── *.go          # TCP-over-HTTP tunnel (Android relay path)
 │   ├── apps-script/
 │   │   └── Code.gs     # Google Apps Script relay (runs on Google's servers)
 │   ├── vps/
@@ -30,8 +32,8 @@ zyrln/
 │
 ├── android/            # Android Studio project
 │   └── app/src/main/java/com/zyrln/relay/
-│       ├── MainActivity.kt      # UI: connect/disconnect, CA cert install flow
-│       └── RelayVpnService.kt   # VpnService: starts Go proxy, sets system proxy
+│       ├── MainActivity.kt      # UI: connect/disconnect, config import, direct toggle
+│       └── RelayVpnService.kt   # VpnService: StartTunnel/StartDirect, system HTTP proxy
 │
 ├── docs/               # Setup guides
 ├── Makefile
@@ -48,7 +50,7 @@ zyrln/
 - `direct.go`: direct mode for Google services. Detects Google domains and dials them directly with fragmentation — no MITM, no relay.
 - `fragment.go`: splits the first TLS ClientHello into 87 random-boundary chunks with 5ms delay each, preventing SNDPI from reading the SNI field.
 
-**`platforms/mobile`** exposes a flat string-based API (`Start`, `Stop`, etc.) because gomobile only supports primitive types at the boundary. All errors are returned as strings, not Go `error` values.
+**`platforms/mobile`** exposes a flat string-based API (`StartTunnel`, `StartDirect`, `Stop`, `Ping`, etc.) because gomobile only supports primitive types at the boundary. All errors are returned as strings, not Go `error` values.
 
 ## Running Tests
 

@@ -1,27 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Zyrln</string>
-    <string name="app_tagline">Domain-fronted relay via Google Apps Script</string>
     <string name="btn_import_config">Import from Clipboard</string>
-    <string name="btn_manual_config">Manual Configuration</string>
-    <string name="btn_install_ca">Install CA Certificate</string>
     <string name="status_stopped">Stopped</string>
     <string name="status_running">Running — proxy on 127.0.0.1:8085</string>
-    <string name="ca_install_hint">Install once. Required for HTTPS sites.</string>
     <string name="empty_configs">No saved configs yet.\nImport or enter one to get started.</string>
-    <string name="dialog_manual_title">Manual Entry</string>
-    <string name="hint_url">Apps Script URLs (comma-separated)</string>
-    <string name="hint_key">Auth Key</string>
     <string name="vpn_notification_title">Zyrln active</string>
-    <string name="dialog_ca_title">Install CA Certificate</string>
-    <string name="dialog_ca_message">The certificate has been saved to:\n\n%1$s\n\nSteps:\n1. Tap \"Open Settings\" below\n2. Go to Security settings\n3. Tap \"Install from device storage\"\n4. Browse and select the file\n5. Choose \"CA certificate\"</string>
-    <string name="dialog_ca_message_generic">The certificate has been saved to your selected path.\n\nSteps:\n1. Tap \"Open Settings\" below\n2. Go to Security settings\n3. Tap \"Install from device storage\"\n4. Browse and select the file\n5. Choose \"CA certificate\"</string>
-    <string name="msg_ca_saved">Certificate saved to Downloads/%1$s</string>
-    <string name="vpn_notification_text">Proxy running on 127.0.0.1:8085</string>
-    <string name="channel_id">zyrln_vpn</string>
-    <string name="channel_name">VPN Status</string>
+    <string name="vpn_notification_text">Tunnel on 127.0.0.1:8085 — toggle ⚡ for Google direct</string>
+    <string name="direct_notification_title">Zyrln direct</string>
+    <string name="direct_notification_text">Google direct on 127.0.0.1:8085</string>
+    <string name="vpn_session_name">Zyrln</string>
+    <string name="channel_name_vpn">Zyrln</string>
     <string name="error_vpn_permission">VPN permission denied</string>
-    <string name="error_ca_required">Install the CA certificate before connecting.</string>
     <string name="error_relay_start_failed">Relay start failed: %1$s</string>
     <string name="error_relay_start_generic">Relay failed to start</string>
     <string name="btn_connect">Connect</string>
@@ -29,24 +19,16 @@
     <string name="msg_clipboard_empty">Clipboard is empty</string>
     <string name="msg_config_saved_connect">Config saved — tap it to connect</string>
     <string name="msg_already_exists">Already in list</string>
-    <string name="msg_fields_empty">Fields cannot be empty</string>
-    <string name="msg_config_saved">Config saved</string>
-    <string name="msg_cert_saved_success">Certificate saved successfully</string>
     <string name="msg_invalid_config">Invalid config. Paste a JSON like {\"url\":\"...\",\"key\":\"...\"}</string>
     <string name="dialog_remove_title">Remove Config</string>
     <string name="dialog_remove_active">\"%1$s\" is currently connected. Disconnect and remove it?</string>
     <string name="dialog_remove_inactive">Remove \"%1$s\"?</string>
     <string name="btn_remove">Remove</string>
     <string name="btn_cancel">Cancel</string>
-    <string name="btn_save">Save</string>
     <string name="btn_ok">OK</string>
-    <string name="btn_open_settings">Open Settings</string>
-    <string name="btn_later">Later</string>
-    <string name="dialog_ca_reinstall_message">A NEW certificate has been generated. You MUST now re-install it in your phone settings (Security > Install from storage) for HTTPS to work properly.</string>
     <string name="label_uptime">Uptime</string>
     <string name="log_title">LIVE LOG</string>
     <string name="log_share_subject">Zyrln Debug Log</string>
     <string name="log_empty">No logs to share yet.</string>
-    <string name="select_config_hint">Tap a config row to select it, then Connect</string>
     <string name="direct_only_label">Direct (Google only)</string>
 </resources>

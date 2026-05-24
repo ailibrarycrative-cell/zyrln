@@ -12,7 +12,6 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import mobile.Mobile
-import java.io.File
 
 class RelayVpnService : VpnService() {
 
@@ -23,14 +22,15 @@ class RelayVpnService : VpnService() {
         const val TAG = "RelayVpnService"
         const val ACTION_START = "com.zyrln.relay.START"
         const val ACTION_STOP = "com.zyrln.relay.STOP"
+        const val ACTION_STARTED = "com.zyrln.relay.STARTED"
         const val ACTION_ERROR = "com.zyrln.relay.ERROR"
+        const val ACTION_STOPPED = "com.zyrln.relay.STOPPED"
         const val EXTRA_URL = "url"
         const val EXTRA_KEY = "key"
         const val EXTRA_ERROR = "error"
         const val NOTIF_ID = 1
         const val CHANNEL_ID = "zyrln_vpn"
         private const val PROXY_PORT = 8085
-
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -42,7 +42,6 @@ class RelayVpnService : VpnService() {
         val url = intent?.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY
         val key = intent.getStringExtra(EXTRA_KEY) ?: return START_NOT_STICKY
 
-        // Stop any existing session before starting a new one (handles rapid mode switching).
         startGeneration++
         if (Mobile.isRunning()) {
             Mobile.setSocketProtector(null)
@@ -51,7 +50,7 @@ class RelayVpnService : VpnService() {
             vpnInterface = null
         }
 
-        startForeground(NOTIF_ID, buildNotification())
+        startForeground(NOTIF_ID, buildNotification(url.isEmpty()))
         val gen = startGeneration
         val vpnService = this
         Mobile.setSocketProtector(object : mobile.SocketProtector {
@@ -65,40 +64,33 @@ class RelayVpnService : VpnService() {
 
     private fun startRelay(url: String, key: String, generation: Int) {
         if (generation != startGeneration) return
+
         val err = if (url.isEmpty()) {
             Mobile.startDirect("127.0.0.1:$PROXY_PORT")
         } else {
-            val certDir = File(filesDir, "certs").also { it.mkdirs() }
-            val certPath = File(certDir, "ca.pem").absolutePath
-            val keyPath = File(certDir, "ca.key").absolutePath
-            if (!File(certPath).exists() || !File(keyPath).exists()) {
-                failStart(getString(R.string.error_ca_required), generation)
-                return
-            }
-            Mobile.start(url, key, "127.0.0.1:$PROXY_PORT", certPath, keyPath)
+            Mobile.startTunnel(url, key, "127.0.0.1:$PROXY_PORT")
         }
+
         if (generation != startGeneration) return
         if (err.isNotEmpty()) {
             Log.e(TAG, "relay start failed: $err")
             failStart(getString(R.string.error_relay_start_failed, err), generation)
             return
         }
-        Log.i(TAG, "relay proxy started on 127.0.0.1:$PROXY_PORT")
+        Log.i(TAG, "relay started on 127.0.0.1:$PROXY_PORT (directOnly=${url.isEmpty()})")
         if (generation != startGeneration) {
             Mobile.setSocketProtector(null)
             Mobile.stop()
             return
         }
 
-        val builder = Builder()
-            .setSession("Zyrln")
-            .addAddress("10.99.0.2", 32)
-            .setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", PROXY_PORT))
-
         try {
-            vpnInterface = builder.establish()
+            vpnInterface = Builder()
+                .setSession(getString(R.string.vpn_session_name))
+                .addAddress("10.99.0.2", 32)
+                .setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", PROXY_PORT))
+                .establish()
             if (vpnInterface == null) {
-                // establish() returns null when VPN permission is revoked mid-flow.
                 failStart(getString(R.string.error_vpn_permission), generation)
                 return
             }
@@ -109,8 +101,8 @@ class RelayVpnService : VpnService() {
                 vpnInterface = null
                 return
             }
-            Log.i(TAG, "VPN interface established")
-            sendBroadcast(Intent("com.zyrln.relay.STARTED"))
+            Log.i(TAG, "system HTTP proxy established")
+            sendBroadcast(Intent(ACTION_STARTED))
         } catch (e: Exception) {
             Log.e(TAG, "VPN establish failed: ${e.message}")
             Mobile.setSocketProtector(null)
@@ -142,7 +134,7 @@ class RelayVpnService : VpnService() {
         vpnInterface?.close()
         vpnInterface = null
         stopForeground(STOP_FOREGROUND_REMOVE)
-        sendBroadcast(Intent("com.zyrln.relay.STOPPED"))
+        sendBroadcast(Intent(ACTION_STOPPED))
         stopSelf()
     }
 
@@ -151,13 +143,12 @@ class RelayVpnService : VpnService() {
         Mobile.stop()
         vpnInterface?.close()
         vpnInterface = null
-        sendBroadcast(Intent("com.zyrln.relay.STOPPED"))
+        sendBroadcast(Intent(ACTION_STOPPED))
         super.onDestroy()
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(directOnly: Boolean): Notification {
         createNotificationChannel()
-
         val openIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
@@ -168,13 +159,22 @@ class RelayVpnService : VpnService() {
             Intent(this, RelayVpnService::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
+        val title = if (directOnly) {
+            getString(R.string.direct_notification_title)
+        } else {
+            getString(R.string.vpn_notification_title)
+        }
+        val text = if (directOnly) {
+            getString(R.string.direct_notification_text)
+        } else {
+            getString(R.string.vpn_notification_text)
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.vpn_notification_title))
-            .setContentText(getString(R.string.vpn_notification_text))
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openIntent)
-            .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
+            .addAction(android.R.drawable.ic_media_pause, getString(R.string.btn_disconnect), stopIntent)
             .setOngoing(true)
             .build()
     }
@@ -183,11 +183,10 @@ class RelayVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.channel_name),
+                getString(R.string.channel_name_vpn),
                 NotificationManager.IMPORTANCE_LOW
             )
-            getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 }

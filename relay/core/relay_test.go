@@ -442,7 +442,7 @@ func TestRelayRequestMulti_UsesStickyURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	activeURLIdx.Store(0)
+	ActiveURLIdx.Store(0)
 
 	urls := []string{srv.URL + "/s/ID1/exec", srv.URL + "/s/ID2/exec"}
 	for i := 0; i < 4; i++ {
@@ -483,7 +483,7 @@ func TestRelayRequestMulti_SucceedsWithMixedURLs(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	activeURLIdx.Store(0)
+	ActiveURLIdx.Store(0)
 
 	urls := []string{srv.URL + "/s/ID1/exec", srv.URL + "/s/ID2/exec"}
 	for i := 0; i < 3; i++ {
@@ -533,7 +533,7 @@ func TestRelayRequestMulti_FailoverOnQuota(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	activeURLIdx.Store(0)
+	ActiveURLIdx.Store(0)
 	urls := []string{
 		srv.URL + "/s/ID1/exec",
 		srv.URL + "/s/ID2/exec",

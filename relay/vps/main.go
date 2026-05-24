@@ -55,11 +55,15 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	tunnelHub := newTunnelHub(*timeout)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("/relay", func(w http.ResponseWriter, r *http.Request) {
 		handleRelay(w, r, client, *key, *timeout)
+	})
+	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
+		handleTunnel(w, r, tunnelHub, *key, *timeout)
 	})
 
 	server := &http.Server{
@@ -68,9 +72,9 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("zyrln relay listening on http://%s", *listen)
+	log.Printf("zyrln relay listening on http://%s (/relay + /tunnel)", *listen)
 	if *key == "" {
-		log.Printf("warning: ZYRLN_RELAY_KEY is empty; /relay is not protected")
+		log.Printf("warning: ZYRLN_RELAY_KEY is empty; /relay and /tunnel are not protected")
 	}
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)

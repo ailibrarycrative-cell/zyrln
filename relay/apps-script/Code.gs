@@ -1,5 +1,6 @@
 const AUTH_KEY = "CHANGE_ME_TO_A_LONG_RANDOM_SECRET";
 const EXIT_RELAY_URL = "https://CHANGE_ME_EXIT_RELAY_URL/relay";
+const EXIT_TUNNEL_URL = ""; // optional; defaults to same host as EXIT_RELAY_URL with /tunnel
 const EXIT_RELAY_KEY = "";
 
 const SKIP_HEADERS = {
@@ -13,17 +14,61 @@ const SKIP_HEADERS = {
 
 function doPost(e) {
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return json_({ e: "bad request" });
+    }
     const req = JSON.parse(e.postData.contents);
     if (req.k !== AUTH_KEY) {
       return json_({ e: "unauthorized" });
     }
     const compress = !!req.gz;
+    if (req.t && typeof req.t === "object" && !Array.isArray(req.t) && req.t.op === "ping") {
+      return json_({ ok: true });
+    }
+    if (req.t && typeof req.t === "object" && !Array.isArray(req.t)) {
+      return doTunnel_(req);
+    }
+    if (Array.isArray(req.tb) && req.tb.length > 0) {
+      return doTunnel_(req);
+    }
     if (Array.isArray(req.q)) {
       return doBatch_(req.q, compress);
     }
     return doSingle_(req, compress);
   } catch (err) {
     return json_({ e: String(err) });
+  }
+}
+
+function tunnelURL_() {
+  if (EXIT_TUNNEL_URL) {
+    return EXIT_TUNNEL_URL;
+  }
+  const relay = (EXIT_RELAY_URL || "").replace(/\/+$/, "");
+  if (/\/relay$/i.test(relay)) {
+    return relay.replace(/\/relay$/i, "/tunnel");
+  }
+  if (relay) {
+    return relay + "/tunnel";
+  }
+  return "/tunnel";
+}
+
+function doTunnel_(req) {
+  const payload = Array.isArray(req.tb) ? JSON.stringify({ ops: req.tb }) : JSON.stringify(req.t);
+  const resp = UrlFetchApp.fetch(tunnelURL_(), {
+    method: "post",
+    contentType: "application/json",
+    payload: payload,
+    muteHttpExceptions: true,
+    followRedirects: true,
+    headers: exitRelayHeaders_(),
+  });
+
+  try {
+    return json_(JSON.parse(resp.getContentText()));
+  } catch (err) {
+    return json_({ ok: false, e: "invalid tunnel response", raw: resp.getContentText() });
   }
 }
 

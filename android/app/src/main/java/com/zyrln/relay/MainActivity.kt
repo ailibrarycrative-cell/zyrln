@@ -17,7 +17,6 @@ import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.net.VpnService
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -37,8 +36,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.os.LocaleListCompat
 import com.zyrln.relay.databinding.ActivityMainBinding
 import mobile.Mobile
-import android.net.Uri
-import java.io.File
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -46,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         // Survives activity recreation (theme/language change)
         private val logCache = android.text.SpannableStringBuilder()
+        private const val DEFAULT_DIRECT_ONLY = true
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -60,19 +58,13 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            launchVpnService()
+            launchRelayService()
         } else {
             activeUrl = null
             activeKey = null
             Toast.makeText(this, R.string.error_vpn_permission, Toast.LENGTH_SHORT).show()
             refreshList(running = false)
         }
-    }
-
-    private val createDocumentLauncher = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/x-x509-ca-cert")
-    ) { uri ->
-        uri?.let { saveCertToUri(it) }
     }
 
     private val startedReceiver = object : BroadcastReceiver() {
@@ -136,14 +128,12 @@ class MainActivity : AppCompatActivity() {
         binding.versionTag.text = "v${BuildConfig.VERSION_NAME}"
 
         binding.btnImportConfig.setOnClickListener { importConfig() }
-        binding.btnInstallCA.setOnClickListener { installCACert() }
         binding.btnLanguage.setOnClickListener { toggleLanguage() }
         binding.btnTheme.setOnClickListener { toggleTheme() }
         binding.btnConnect.setOnClickListener { onConnectClicked() }
         binding.btnDirect.setOnClickListener { toggleDirectMode() }
         binding.btnShareLog.setOnClickListener { shareLog() }
         binding.btnPing.setOnClickListener {
-            // Direct-only mode: measure a fragmented connection to gstatic, no relay needed.
             if (directOnlySelected || (Mobile.isRunning() && activeUrl == null)) {
                 binding.pingResult.visibility = View.VISIBLE
                 binding.pingResult.text = "…"
@@ -158,13 +148,11 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.empty_configs, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            // Use the selected row, or active row, or first config
             val (pingUrl, pingKey) = when {
                 selectedUrl != null -> Pair(selectedUrl!!, selectedKey ?: "")
                 activeUrl != null -> Pair(activeUrl!!, activeKey ?: "")
                 else -> configs[0]
             }
-            // Auto-select if nothing selected yet
             if (selectedUrl == null && activeUrl == null) {
                 selectedUrl = configs[0].first
                 selectedKey = configs[0].second
@@ -183,20 +171,18 @@ class MainActivity : AppCompatActivity() {
         binding.btnConnect.stateListAnimator = pressAnim
         binding.btnImportConfig.stateListAnimator =
             AnimatorInflater.loadStateListAnimator(this, R.animator.btn_press)
-        binding.btnInstallCA.stateListAnimator =
-            AnimatorInflater.loadStateListAnimator(this, R.animator.btn_press)
 
-        if (Mobile.isRunning()) {
-            activeUrl = prefs.getString("url", null)
-            activeKey = prefs.getString("key", null)
-        }
-        // Restore direct mode state — persisted so reconnect uses the same mode.
-        directOnlySelected = prefs.getBoolean("direct_only", activeUrl == null && activeKey == null)
+        syncModeFromPrefs()
         Mobile.setDirectEnabled(prefs.getBoolean("direct_enabled", directOnlySelected))
         updateUI(running = Mobile.isRunning())
         updateLanguageButton()
         updateThemeButton()
-        updateDirectBtn()
+
+        if (!Mobile.isRunning() && !prefs.getBoolean("direct_only", false)) {
+            loadConfigs().firstOrNull()?.let { (u, k) ->
+                Thread { Mobile.warmupTunnel(u, k) }.start()
+            }
+        }
 
         // Restore log cache after recreation (theme/language change)
         if (logCache.isNotEmpty() && Mobile.isRunning()) {
@@ -225,17 +211,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        androidx.core.content.ContextCompat.registerReceiver(this, startedReceiver, IntentFilter("com.zyrln.relay.STARTED"), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
-        androidx.core.content.ContextCompat.registerReceiver(this, stopReceiver, IntentFilter("com.zyrln.relay.STOPPED"), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        androidx.core.content.ContextCompat.registerReceiver(this, startedReceiver, IntentFilter(RelayVpnService.ACTION_STARTED), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        androidx.core.content.ContextCompat.registerReceiver(this, stopReceiver, IntentFilter(RelayVpnService.ACTION_STOPPED), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         androidx.core.content.ContextCompat.registerReceiver(this, errorReceiver, IntentFilter(RelayVpnService.ACTION_ERROR), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         startLogPolling()
-        if (Mobile.isRunning() && activeUrl == null) {
-            val savedUrl = prefs.getString("url", null)
-            if (!savedUrl.isNullOrEmpty()) {
-                activeUrl = savedUrl
-                activeKey = prefs.getString("key", null)
-            }
-        }
+        syncModeFromPrefs()
         if (Mobile.isRunning()) resumeUptimeTicker() else stopUptimeTicker()
         updateUI(running = Mobile.isRunning())
     }
@@ -266,7 +246,7 @@ class MainActivity : AppCompatActivity() {
         when {
             directOnlySelected -> connectDirect()
             selectedUrl != null -> connectConfig(selectedUrl!!, selectedKey ?: "")
-            else -> { /* button should be disabled — no-op */ }
+            else -> { /* no-op */ }
         }
     }
 
@@ -335,9 +315,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             binding.btnImportConfig.isEnabled = !running
-            binding.btnInstallCA.isEnabled = !running
             binding.btnImportConfig.alpha = if (running) 0.5f else 1f
-            binding.btnInstallCA.alpha = if (running) 0.5f else 1f
             binding.logCard.visibility = if (running) View.VISIBLE else View.GONE
             binding.bottomActions.visibility = if (running) View.GONE else View.VISIBLE
             if (!running) { binding.logOutput.text = ""; logCache.clear() }
@@ -398,7 +376,7 @@ class MainActivity : AppCompatActivity() {
             directOnlySelected = true
         }
 
-        // Direct-only card — always shown at the top
+        // Direct (Google only) — no relay config required
         run {
             val isSelected = directOnlySelected
             val card = CardView(this).apply {
@@ -537,8 +515,8 @@ class MainActivity : AppCompatActivity() {
                         selectedUrl = url
                         selectedKey = key
                         directOnlySelected = false
-                        Mobile.setDirectEnabled(false)
-                        prefs.edit().putBoolean("direct_only", false).putBoolean("direct_enabled", false).apply()
+                        prefs.edit().putBoolean("direct_only", false).apply()
+                        Mobile.warmupTunnel(url, key)
                     }
                     refreshList(running = false)
                     updateDirectBtn()
@@ -584,38 +562,36 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connectConfig(url: String, key: String) {
+        Mobile.warmupTunnel(url, key)
         directOnlySelected = false
-        prefs.edit().putBoolean("direct_only", false).apply()
-        if (!hasInstalledCA()) {
-            activeUrl = null
-            activeKey = null
-            updateUI(running = false)
-            Toast.makeText(this, R.string.error_ca_required, Toast.LENGTH_LONG).show()
-            return
-        }
+        prefs.edit()
+            .putBoolean("direct_only", false)
+            .putString("url", url)
+            .putString("key", key)
+            .apply()
         activeUrl = url
         activeKey = key
         selectedUrl = null
         selectedKey = null
-        prefs.edit().putString("url", url).putString("key", key).apply()
         refreshList(running = false)
         val vpnIntent = VpnService.prepare(this)
-        if (vpnIntent != null) vpnPermissionLauncher.launch(vpnIntent) else launchVpnService()
+        if (vpnIntent != null) vpnPermissionLauncher.launch(vpnIntent) else launchRelayService()
     }
 
     private fun connectDirect() {
         Mobile.setDirectEnabled(true)
         directOnlySelected = true
-        prefs.edit().putString("url", "").putString("key", "")
-            .putBoolean("direct_only", true).putBoolean("direct_enabled", true).apply()
+        activeUrl = null
+        activeKey = null
+        prefs.edit()
+            .putString("url", "")
+            .putString("key", "")
+            .putBoolean("direct_only", true)
+            .putBoolean("direct_enabled", true)
+            .apply()
         updateDirectBtn()
         val vpnIntent = VpnService.prepare(this)
-        if (vpnIntent != null) vpnPermissionLauncher.launch(vpnIntent) else launchVpnService()
-    }
-
-    private fun hasInstalledCA(): Boolean {
-        val certDir = File(filesDir, "certs")
-        return File(certDir, "ca.pem").exists() && File(certDir, "ca.key").exists()
+        if (vpnIntent != null) vpnPermissionLauncher.launch(vpnIntent) else launchRelayService()
     }
 
     private fun appendLog(level: String, msg: String) {
@@ -654,7 +630,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun launchVpnService() {
+    private fun launchRelayService() {
         val url = prefs.getString("url", "") ?: ""
         val key = prefs.getString("key", "") ?: ""
         playMotion(binding.btnConnect, R.anim.motion_confirm)
@@ -687,6 +663,7 @@ class MainActivity : AppCompatActivity() {
             val (url, key) = ConfigUtils.parseImportText(rawText)
             if (saveConfig(url, key)) {
                 refreshList()
+                Thread { Mobile.warmupTunnel(url, key) }.start()
                 playMotion(binding.btnImportConfig, R.anim.motion_confirm)
                 Toast.makeText(this, R.string.msg_config_saved_connect, Toast.LENGTH_SHORT).show()
             } else {
@@ -734,35 +711,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun configLabel(url: String) = ConfigUtils.configLabel(url)
 
-    private fun installCACert() {
-        val certDir = File(filesDir, "certs")
-        certDir.mkdirs()
-        val certFile = File(certDir, "ca.pem")
-        val keyFile = File(certDir, "ca.key")
-        val wasGenerated = prefs.getBoolean("ca_generated", false)
-        if (!certFile.exists() || !keyFile.exists()) {
-            val err = Mobile.generateCA(certFile.absolutePath, keyFile.absolutePath)
-            if (err.isNotEmpty()) {
-                Toast.makeText(this, "CA generation failed: $err", Toast.LENGTH_LONG).show()
-                return
-            }
-            prefs.edit().putBoolean("ca_generated", true).apply()
-            // If a CA was previously generated but files are gone (reinstall),
-            // warn the user that the old trusted cert is now invalid.
-            if (wasGenerated) {
-                AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.dialog_ca_title))
-                    .setMessage(getString(R.string.dialog_ca_reinstall_message))
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        createDocumentLauncher.launch("zyrln-ca.pem")
-                    }
-                    .show()
-                return
-            }
-        }
-        createDocumentLauncher.launch("zyrln-ca.pem")
-    }
-
     private fun shareLog() {
         // GetAllLogs includes debug-level entries (race probe failures etc.) that
         // are filtered from the display — important for diagnosing connectivity issues.
@@ -790,31 +738,22 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(intent, getString(R.string.log_share_subject)))
     }
 
-    private fun saveCertToUri(uri: Uri) {
-        val certFile = File(File(filesDir, "certs"), "ca.pem")
-        try {
-            contentResolver.openOutputStream(uri)?.use { output ->
-                certFile.inputStream().use { input -> input.copyTo(output) }
-            }
-            playMotion(binding.btnInstallCA, R.anim.motion_confirm)
-            Toast.makeText(this, R.string.msg_cert_saved_success, Toast.LENGTH_SHORT).show()
-            AlertDialog.Builder(this, R.style.Dialog_Zyrln)
-                .setTitle(R.string.dialog_ca_title)
-                .setMessage(R.string.dialog_ca_message_generic)
-                .setPositiveButton(R.string.btn_open_settings) { _, _ ->
-                    startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
-                }
-                .setNegativeButton(R.string.btn_later, null)
-                .show()
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to save cert: ${e.message}")
-            Toast.makeText(this, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
+    private fun syncModeFromPrefs() {
+        val savedUrl = prefs.getString("url", null)?.takeIf { it.isNotEmpty() }
+        if (Mobile.isRunning()) {
+            activeUrl = savedUrl
+            activeKey = if (savedUrl != null) prefs.getString("key", null) else null
+        } else {
+            activeUrl = null
+            activeKey = null
         }
+        directOnlySelected = savedUrl == null && prefs.getBoolean("direct_only", DEFAULT_DIRECT_ONLY)
     }
 
     private fun toggleDirectMode() {
-        // Only block toggling off while running in direct-only mode (no relay active)
-        if (Mobile.isRunning() && directOnlySelected) return
+        // ⚡ toggles Google direct bypass for relay/tunnel profiles — not the "Direct only" card.
+        if (Mobile.isRunning() || directOnlySelected) return
+        if (selectedUrl == null && activeUrl == null) return
         val next = !Mobile.isDirectEnabled()
         Mobile.setDirectEnabled(next)
         prefs.edit().putBoolean("direct_enabled", next).apply()
@@ -822,6 +761,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateDirectBtn() {
+        // Show ⚡ when a relay profile is selected, or direct-only card (status only — disabled).
+        val relayContext = selectedUrl != null || activeUrl != null
+        val showDirectToggle = directOnlySelected || relayContext
+        binding.btnDirect.visibility = if (showDirectToggle) View.VISIBLE else View.GONE
+        if (!showDirectToggle) return
         val on = Mobile.isDirectEnabled() || directOnlySelected
         val color = ContextCompat.getColor(
             this,
@@ -829,6 +773,6 @@ class MainActivity : AppCompatActivity() {
         )
         binding.btnDirect.imageTintList = ColorStateList.valueOf(color)
         binding.btnDirect.alpha = 1f
-        binding.btnDirect.isEnabled = true
+        binding.btnDirect.isEnabled = !directOnlySelected && !Mobile.isRunning()
     }
 }

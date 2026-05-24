@@ -43,25 +43,21 @@ func currentMode(coal *Coalescer, ca *CertAuthority) proxyMode {
 	}
 }
 
-// logFuncPtr holds the current LogFunc via atomic pointer to avoid data races.
+// logFuncPtr holds the current log callback via atomic pointer to avoid data races.
 var logFuncPtr atomic.Pointer[func(level, msg string)]
 
-// LogFunc receives structured log lines from the proxy. Set before calling StartProxy.
-// level is "info", "error", or "system".
-var LogFunc func(level, msg string) // kept for API compat; use SetLogFunc for safe concurrent access
-
-func init() {
-	// no-op so logFuncPtr starts as nil
-}
-
 // SetLogFunc sets the log callback in a race-safe way.
-// Replaces direct assignment to LogFunc when the proxy may already be running.
 func SetLogFunc(f func(level, msg string)) {
 	if f == nil {
 		logFuncPtr.Store(nil)
 	} else {
 		logFuncPtr.Store(&f)
 	}
+}
+
+// Log writes a structured log line when SetLogFunc is configured.
+func Log(level, format string, args ...any) {
+	logf(level, format, args...)
 }
 
 func logf(level, format string, args ...any) {
@@ -119,6 +115,12 @@ func StartProxy(listenAddr string, appScriptURLs []string, frontDomain, authKey 
 	}
 	go func() { _ = srv.Serve(ln) }()
 	return srv, ln, nil
+}
+
+// StartDirectProxy builds an HTTP CONNECT proxy in direct-only mode: fragmented
+// TLS to Google domains, plain pipe for everything else. No relay, no MITM.
+func StartDirectProxy(listenAddr string) *http.Server {
+	return buildHTTPProxyServer(listenAddr, nil, nil)
 }
 
 // StartProxyWithCoalescer is like StartProxy but also returns the Coalescer so

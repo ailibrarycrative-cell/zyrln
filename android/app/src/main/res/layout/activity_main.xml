@@ -325,24 +325,8 @@
                 style="@style/Btn.Connect"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
-                android:text="@string/btn_import_config"
-                android:layout_marginBottom="10dp" />
+                android:text="@string/btn_import_config" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnInstallCA"
-                style="@style/Btn.Secondary"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:text="@string/btn_install_ca"
-                android:layout_marginBottom="8dp" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/ca_install_hint"
-                android:textSize="12sp"
-                android:textColor="@color/text_dim"
-                android:gravity="center" />
         </LinearLayout>
 
     </LinearLayout>

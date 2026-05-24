@@ -92,6 +92,11 @@ func IsDirectDomain(host string) bool {
 	return IsGoogleDomain(host)
 }
 
+// HandleDirectConnect pipes a CONNECT client to a fragmented direct TCP dial (Google domains).
+func HandleDirectConnect(clientConn net.Conn, targetHost string) {
+	handleDirectConnect(clientConn, targetHost)
+}
+
 // handleDirectConnect is called by the proxy when the CONNECT target is a
 // Google domain. We open a fragmented direct connection and pipe bytes through
 // — the browser's TLS stack runs end-to-end, we never see the plaintext.

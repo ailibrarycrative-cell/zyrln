@@ -11,7 +11,7 @@ zyrln/
 │   │   ├── main.go     # فلگ‌های CLI، runner پروب، لانچر پروکسی
 │   │   └── main_test.go
 │   └── mobile/         # bindings های gomobile برای اندروید
-│       └── mobile.go   # API خروجی: Start, Stop, IsRunning, LastError, GenerateCA
+│       └── mobile.go   # API خروجی: StartTunnel، StartDirect، Stop، Ping، …
 │
 ├── relay/
 │   ├── core/           # منطق مشترک رله (هم دسکتاپ هم اندروید استفاده می‌کنند)
@@ -21,6 +21,8 @@ zyrln/
 │   │   ├── direct.go   # حالت مستقیم: تشخیص دامنه‌های گوگل، dial با fragmentation
 │   │   ├── fragment.go # تکه‌تکه کردن ClientHello TLS برای دور زدن SNI
 │   │   └── *_test.go
+│   ├── tunnel/
+│   │   └── *.go          # تونل TCP-over-HTTP (مسیر رله اندروید)
 │   ├── apps-script/
 │   │   └── Code.gs     # رله Google Apps Script (روی سرورهای گوگل اجرا می‌شود)
 │   ├── vps/
@@ -30,8 +32,8 @@ zyrln/
 │
 ├── android/            # پروژه Android Studio
 │   └── app/src/main/java/com/zyrln/relay/
-│       ├── MainActivity.kt      # رابط کاربری: اتصال/قطع، نصب CA، حالت مستقیم
-│       └── RelayVpnService.kt   # VpnService: اجرای پروکسی Go، تنظیم پروکسی سیستم
+│       ├── MainActivity.kt      # رابط کاربری: اتصال/قطع، import کانفیگ، toggle مستقیم
+│       └── RelayVpnService.kt   # VpnService: StartTunnel/StartDirect، پروکسی HTTP سیستم
 │
 ├── docs/               # راهنماها
 ├── Makefile
@@ -50,7 +52,7 @@ zyrln/
 - `direct.go`: حالت مستقیم برای سرویس‌های گوگل. دامنه‌های گوگل را تشخیص می‌دهد و اتصال مستقیم با fragmentation برقرار می‌کند — بدون MITM، بدون رله.
 - `fragment.go`: ClientHello اول TLS را به ۸۷ قطعه تصادفی تقسیم می‌کند با ۵ms تأخیر بین هر قطعه. این کار سیستم SNDPI را از خواندن SNI باز می‌دارد.
 
-**`platforms/mobile`** یک API flat مبتنی بر string ارائه می‌دهد (`Start`، `Stop` و غیره) چون gomobile فقط از انواع primitive در مرز پشتیبانی می‌کند. تمام خطاها به عنوان string برگردانده می‌شوند، نه مقادیر `error` در Go.
+**`platforms/mobile`** یک API flat مبتنی بر string ارائه می‌دهد (`StartTunnel`، `StartDirect`، `Stop`، `Ping` و غیره) چون gomobile فقط از انواع primitive در مرز پشتیبانی می‌کند. تمام خطاها به عنوان string برگردانده می‌شوند، نه مقادیر `error` در Go.
 
 ## اجرای تست‌ها
 

@@ -84,7 +84,8 @@ func ParseURLList(raw string) []string {
 	return out
 }
 
-var activeURLIdx atomic.Int64
+// ActiveURLIdx is the sticky failover index for Apps Script URL rotation (desktop + tunnel).
+var ActiveURLIdx atomic.Int64
 
 type workerResponse struct {
 	Status  int            `json:"s"`
@@ -157,7 +158,7 @@ func RelayRequestMulti(
 		return RelayResponse{}, fmt.Errorf("no Apps Script URLs configured")
 	}
 	payload := buildRelayPayload(authKey, method, targetURL, headers, body)
-	start := int(activeURLIdx.Load()) % n
+	start := int(ActiveURLIdx.Load()) % n
 	ctx := context.Background()
 
 	var lastErr error
@@ -166,7 +167,7 @@ func RelayRequestMulti(
 		resp, err := tryOneURL(ctx, client, appScriptURLs[idx], frontDomain, payload, timeout)
 		if err == nil {
 			if idx != start {
-				activeURLIdx.Store(int64(idx))
+				ActiveURLIdx.Store(int64(idx))
 			}
 			return resp, nil
 		}
@@ -538,7 +539,7 @@ func (c *Coalescer) flush(batch []*coalescerItem) {
 	}
 
 	n := len(c.appScriptURLs)
-	start := int(activeURLIdx.Load()) % n
+	start := int(ActiveURLIdx.Load()) % n
 	ctx := context.Background()
 
 	var raw []byte
@@ -550,7 +551,7 @@ func (c *Coalescer) flush(batch []*coalescerItem) {
 		if err == nil {
 			raw = r
 			if idx != start {
-				activeURLIdx.Store(int64(idx))
+				ActiveURLIdx.Store(int64(idx))
 			}
 			break
 		}
@@ -651,6 +652,8 @@ func normalizeHeaders(raw map[string]any) map[string][]string {
 }
 
 // appsScriptRoundTrip posts payload to the fronted Apps Script URL, following one redirect if needed.
+// Apps Script returns 302 to a one-shot googleusercontent.com URL; the response is retrieved via GET.
+// Cross-request URL pinning is not possible (Google returns 405 on POST to the echo URL).
 func appsScriptRoundTrip(ctx context.Context, client *http.Client, appScriptURL, frontDomain, payload string, timeout time.Duration) ([]byte, error) {
 	noRedir := noRedirectClient(client)
 
@@ -717,6 +720,17 @@ func newFrontedPOST(ctx context.Context, appScriptURL, frontDomain, payload stri
 	if parsed.Scheme != "https" || parsed.Host == "" {
 		return nil, fmt.Errorf("expected https Apps Script URL")
 	}
+	return newFrontedPOSTToURL(ctx, appScriptURL, parsed.Host, frontDomain, payload)
+}
+
+func newFrontedPOSTToURL(ctx context.Context, requestURL, hostHeader, frontDomain, payload string) (*http.Request, error) {
+	parsed, err := url.Parse(requestURL)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" {
+		return nil, fmt.Errorf("expected https Apps Script URL")
+	}
 	front := effectiveFrontDomain(frontDomain)
 
 	fronted := *parsed
@@ -726,7 +740,11 @@ func newFrontedPOST(ctx context.Context, appScriptURL, frontDomain, payload stri
 	if err != nil {
 		return nil, err
 	}
-	req.Host = parsed.Host
+	if hostHeader != "" {
+		req.Host = hostHeader
+	} else {
+		req.Host = parsed.Host
+	}
 	req.Header.Set("Content-Type", "application/json")
 	return req, nil
 }
@@ -763,8 +781,14 @@ func doHTTP(client *http.Client, req *http.Request) (status int, location string
 		return 0, "", nil, compactErr(err)
 	}
 	defer resp.Body.Close()
+	status = resp.StatusCode
+	location = resp.Header.Get("Location")
+	if isRedirect(status) {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return status, location, nil, ""
+	}
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxRelayBody))
-	return resp.StatusCode, resp.Header.Get("Location"), data, ""
+	return status, location, data, ""
 }
 
 func buildRelayPayload(authKey, method, targetURL string, headers map[string]string, body []byte) string {

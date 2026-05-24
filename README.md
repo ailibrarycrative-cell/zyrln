@@ -173,10 +173,7 @@ Quick steps:
 1. Install the APK from [Releases](../../releases)
 2. In the desktop app: click the **export** button → copy the JSON
 3. In the Android app: tap **Import Config from Clipboard**
-4. Tap **Install CA Certificate** and follow the prompts
-5. Tap your config to connect
-
-> ⚠️ Never copy the CA certificate file from your computer to your phone. Each device generates its own. Always use **Install CA Certificate** inside the Android app.
+4. Tap your config, then tap **Connect** and allow VPN permission
 
 ---
 
@@ -218,10 +215,9 @@ make test
 - Confirm your browser proxy is set to `127.0.0.1:8085`
 - Run the diagnostics tool (play button in the Tools section)
 
-**HTTPS sites show SSL errors**
+**HTTPS sites show SSL errors (desktop only)**
 - The CA certificate is not installed or not trusted
 - Desktop: re-import `certs/zyrln-ca.pem` in your browser
-- Android: use **Install CA Certificate** in the app, not a manual file copy
 
 **Apps Script quota exceeded**
 - Add more Apps Script deployments from different Google accounts
