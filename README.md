@@ -221,9 +221,6 @@ make vps-relay-bundle   # → dist/zyrln-vps-install-VERSION.zip
 - Instagram is IP-blocked, not just SNI-filtered — it needs the full relay chain
 - Make sure your VPS/Cloudflare exit relay is running
 
-**Android: some apps don't work**
-- Apps that hardcode their own certificates (banking apps, some social apps) ignore the system proxy and can't be intercepted without root
-
 ---
 
 ## Security Notes
