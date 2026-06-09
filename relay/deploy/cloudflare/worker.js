@@ -7,7 +7,7 @@ import { connect } from "cloudflare:sockets";
 import { DurableObject } from "cloudflare:workers";
 
 // Worker hostname only (no https://). Used to block relay self-fetch loops.
-const WORKER_HOST = "CHANGE_ME_WORKER_HOST";
+const WORKER_HOST = "https://zyrln-bridge.worker-cd-free.workers.dev/";
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_RX_WAIT_MS = 3000;
